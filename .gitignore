@@ -1,0 +1,8 @@
+# Secrets
+.env
+
+# App config (generated at runtime)
+config/
+
+# Media library and downloads
+media/
