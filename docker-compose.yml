@@ -1,37 +1,43 @@
 services:
 
   # ─────────────────────────────────────────────────────────
-  # VPN GATEWAY — commented out for local testing on macOS.
-  # Docker Desktop on macOS lacks iptables support (Linux only).
-  # On production Linux: uncomment gluetun, remove qbittorrent
-  # ports/networks, and restore:
-  #   network_mode: "service:gluetun"
-  #   depends_on: [gluetun]
+  # VPN GATEWAY
+  # qBittorrent runs as a sidecar — all its traffic routes through
+  # this container's WireGuard/OpenVPN tunnel. Traefik labels and
+  # torrent peer ports are declared here, not on qbittorrent.
   # ─────────────────────────────────────────────────────────
-  # gluetun:
-  #   image: qmcgaw/gluetun:latest
-  #   container_name: gluetun
-  #   cap_add:
-  #     - NET_ADMIN
-  #   devices:
-  #     - /dev/net/tun:/dev/net/tun
-  #   ports:
-  #     - "8081:8081"
-  #     - "6881:6881"
-  #     - "6881:6881/udp"
-  #   environment:
-  #     VPN_SERVICE_PROVIDER: nordvpn
-  #     VPN_TYPE: openvpn
-  #     OPENVPN_USER: ${OPENVPN_USER}
-  #     OPENVPN_PASSWORD: ${OPENVPN_PASSWORD}
-  #     # SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES}
-  #     TZ: ${TZ}
-  #   networks:
-  #     - media_network
-  #   restart: unless-stopped
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "6881:6881"
+      - "6881:6881/udp"
+    environment:
+      VPN_SERVICE_PROVIDER: nordvpn
+      VPN_TYPE: openvpn
+      OPENVPN_USER: ${OPENVPN_USER}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD}
+      # SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES}
+      TZ: ${TZ}
+    networks:
+      - media_network
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.qbittorrent.rule=Host(`qbittorrent.${DOMAIN}`)"
+      - "traefik.http.routers.qbittorrent.entrypoints=websecure"
+      - "traefik.http.routers.qbittorrent.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.qbittorrent.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.qbittorrent.loadbalancer.server.port=8081"
+    restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
-  # CLOUDFLARE BYPASS PROXY — used by Prowlarr for protected indexers
+  # CLOUDFLARE BYPASS PROXY — used by Prowlarr for protected indexers.
+  # Internal only — not exposed via Traefik.
   # ─────────────────────────────────────────────────────────
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
@@ -39,18 +45,21 @@ services:
     environment:
       TZ: ${TZ}
       LOG_LEVEL: info
-    ports:
-      - "8191:8191"
     networks:
       - media_network
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
   # TORRENT CLIENT
+  # Shares Gluetun's network namespace — all traffic exits via VPN.
+  # Web UI is proxied through Traefik via the gluetun service.
   # ─────────────────────────────────────────────────────────
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
     environment:
       PUID: ${PUID}
       PGID: ${PGID}
@@ -59,13 +68,6 @@ services:
     volumes:
       - ./config/qbittorrent:/config
       - ./media:/data
-    ports:
-      - "8081:8081"
-      - "6881:6881"
-      - "6881:6881/udp"
-    networks:
-      - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -81,17 +83,16 @@ services:
     volumes:
       - ./config/sabnzbd:/config
       - ./media:/data
-    ports:
-      - "8080:8080"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.${DOMAIN}`)"
-    #   - "traefik.http.routers.sabnzbd.entrypoints=websecure"
-    #   - "traefik.http.routers.sabnzbd.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.sabnzbd.loadbalancer.server.port=8080"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.${DOMAIN}`)"
+      - "traefik.http.routers.sabnzbd.entrypoints=websecure"
+      - "traefik.http.routers.sabnzbd.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sabnzbd.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.sabnzbd.loadbalancer.server.port=8080"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -106,17 +107,16 @@ services:
       TZ: ${TZ}
     volumes:
       - ./config/prowlarr:/config
-    ports:
-      - "9696:9696"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.prowlarr.rule=Host(`prowlarr.${DOMAIN}`)"
-    #   - "traefik.http.routers.prowlarr.entrypoints=websecure"
-    #   - "traefik.http.routers.prowlarr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.prowlarr.loadbalancer.server.port=9696"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prowlarr.rule=Host(`prowlarr.${DOMAIN}`)"
+      - "traefik.http.routers.prowlarr.entrypoints=websecure"
+      - "traefik.http.routers.prowlarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.prowlarr.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.prowlarr.loadbalancer.server.port=9696"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -132,17 +132,16 @@ services:
     volumes:
       - ./config/radarr:/config
       - ./media:/data
-    ports:
-      - "7878:7878"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.radarr.rule=Host(`radarr.${DOMAIN}`)"
-    #   - "traefik.http.routers.radarr.entrypoints=websecure"
-    #   - "traefik.http.routers.radarr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.${DOMAIN}`)"
+      - "traefik.http.routers.radarr.entrypoints=websecure"
+      - "traefik.http.routers.radarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.radarr.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -158,17 +157,16 @@ services:
     volumes:
       - ./config/sonarr:/config
       - ./media:/data
-    ports:
-      - "8989:8989"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.sonarr.rule=Host(`sonarr.${DOMAIN}`)"
-    #   - "traefik.http.routers.sonarr.entrypoints=websecure"
-    #   - "traefik.http.routers.sonarr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarr.rule=Host(`sonarr.${DOMAIN}`)"
+      - "traefik.http.routers.sonarr.entrypoints=websecure"
+      - "traefik.http.routers.sonarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sonarr.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.sonarr.loadbalancer.server.port=8989"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -184,17 +182,16 @@ services:
     volumes:
       - ./config/lidarr:/config
       - ./media:/data
-    ports:
-      - "8686:8686"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.lidarr.rule=Host(`lidarr.${DOMAIN}`)"
-    #   - "traefik.http.routers.lidarr.entrypoints=websecure"
-    #   - "traefik.http.routers.lidarr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.lidarr.loadbalancer.server.port=8686"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.lidarr.rule=Host(`lidarr.${DOMAIN}`)"
+      - "traefik.http.routers.lidarr.entrypoints=websecure"
+      - "traefik.http.routers.lidarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.lidarr.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.lidarr.loadbalancer.server.port=8686"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -210,24 +207,23 @@ services:
     volumes:
       - ./config/readarr:/config
       - ./media:/data
-    ports:
-      - "8787:8787"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.readarr.rule=Host(`readarr.${DOMAIN}`)"
-    #   - "traefik.http.routers.readarr.entrypoints=websecure"
-    #   - "traefik.http.routers.readarr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.readarr.loadbalancer.server.port=8787"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.readarr.rule=Host(`readarr.${DOMAIN}`)"
+      - "traefik.http.routers.readarr.entrypoints=websecure"
+      - "traefik.http.routers.readarr.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.readarr.middlewares=local-ipallowlist@file"
+      - "traefik.http.services.readarr.loadbalancer.server.port=8787"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
   # MEDIA SERVER
-  # Note: Hardware transcoding (VideoToolbox) is not available
-  # in Docker on macOS. On Linux, add device passthrough for
-  # Intel (/dev/dri) or NVIDIA (nvidia runtime).
+  # Note: On Linux, add device passthrough for hardware transcoding:
+  # Intel QuickSync: devices: [/dev/dri:/dev/dri]
+  # NVIDIA: runtime: nvidia + NVIDIA_VISIBLE_DEVICES=all
   # ─────────────────────────────────────────────────────────
   jellyfin:
     image: jellyfin/jellyfin:latest
@@ -240,18 +236,15 @@ services:
       - ./media/tv:/data/tv:ro
       - ./media/music:/data/music:ro
       - ./media/books:/data/books:ro
-    ports:
-      - "8096:8096"
-      - "8920:8920"   # HTTPS (optional)
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.jellyfin.rule=Host(`jellyfin.${DOMAIN}`)"
-    #   - "traefik.http.routers.jellyfin.entrypoints=websecure"
-    #   - "traefik.http.routers.jellyfin.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyfin.rule=Host(`jellyfin.${DOMAIN}`)"
+      - "traefik.http.routers.jellyfin.entrypoints=websecure"
+      - "traefik.http.routers.jellyfin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jellyfin.loadbalancer.server.port=8096"
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
@@ -264,17 +257,15 @@ services:
       TZ: ${TZ}
     volumes:
       - ./config/jellyseerr:/app/config
-    ports:
-      - "5055:5055"
     networks:
       - media_network
-      # - traefik_proxy  # Uncomment when Traefik is running
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.${DOMAIN}`)"
-    #   - "traefik.http.routers.jellyseerr.entrypoints=websecure"
-    #   - "traefik.http.routers.jellyseerr.tls.certresolver=letsencrypt"
-    #   - "traefik.http.services.jellyseerr.loadbalancer.server.port=5055"
+      - traefik_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jellyseerr.rule=Host(`jellyseerr.${DOMAIN}`)"
+      - "traefik.http.routers.jellyseerr.entrypoints=websecure"
+      - "traefik.http.routers.jellyseerr.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jellyseerr.loadbalancer.server.port=5055"
     depends_on:
       - jellyfin
     restart: unless-stopped
@@ -286,7 +277,5 @@ networks:
   media_network:
     driver: bridge
 
-  # Uncomment when your Traefik stack is running.
-  # Create the network first: docker network create traefik_proxy
-  # traefik_proxy:
-  #   external: true
+  traefik_proxy:
+    external: true

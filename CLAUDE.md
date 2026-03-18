@@ -46,13 +46,20 @@ All services that move files mount `./media` as `/data`. This keeps downloads an
 - Library path: `/data/<type>/`
 
 ### Traefik Integration
-Traefik is managed in a separate repo. To enable it here:
+Traefik is managed in a separate repo. All services route through Traefik — no host port bindings except qBittorrent's torrent peer port (6881). Prerequisites:
 1. Run `docker network create traefik_proxy`
-2. In `docker-compose.yml`: uncomment `traefik_proxy` network references and all `labels:` blocks
+2. Ensure `LOCAL_WHITELIST` is set in the Traefik stack's `.env` (WireGuard/LAN CIDRs)
 3. Set `DOMAIN=yourdomain.com` in `.env`
 
-### macOS / Testing Notes
-Running on macOS M1 with Docker Desktop. Jellyfin uses software transcoding only — hardware transcoding (VideoToolbox) is not accessible in Docker on macOS. On Linux production, add `/dev/dri` device passthrough for Intel QuickSync or configure the NVIDIA runtime for GPU transcoding.
+Access tiers:
+- **Public** (own auth): `jellyfin.DOMAIN`, `jellyseerr.DOMAIN`
+- **IP-whitelisted** (WireGuard/LAN only): all *arr services, qBittorrent, SABnzbd
+- **Internal only** (no Traefik route): FlareSolverr
+
+### Linux / Hardware Transcoding
+On Linux, add device passthrough to the `jellyfin` service for hardware transcoding:
+- Intel QuickSync: `devices: [/dev/dri:/dev/dri]`
+- NVIDIA: `runtime: nvidia` + `NVIDIA_VISIBLE_DEVICES=all`
 
 ## Inter-Service Connections
 
