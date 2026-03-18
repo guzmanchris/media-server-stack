@@ -104,6 +104,7 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     volumes:
       - ./config/prowlarr:/config
     networks:
@@ -128,6 +129,7 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     volumes:
       - ./config/radarr:/config
       - ./media:/data
@@ -153,6 +155,7 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     volumes:
       - ./config/sonarr:/config
       - ./media:/data
@@ -178,6 +181,7 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     volumes:
       - ./config/lidarr:/config
       - ./media:/data
@@ -203,6 +207,7 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       TZ: ${TZ}
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
     volumes:
       - ./config/readarr:/config
       - ./media:/data
