@@ -18,9 +18,8 @@ services:
       - "6881:6881/udp"
     environment:
       VPN_SERVICE_PROVIDER: nordvpn
-      VPN_TYPE: openvpn
-      OPENVPN_USER: ${OPENVPN_USER}
-      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD}
+      VPN_TYPE: wireguard
+      NORDVPN_TOKEN: ${NORDVPN_TOKEN}
       # SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES}
       TZ: ${TZ}
     networks:
