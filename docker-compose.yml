@@ -73,6 +73,9 @@ services:
     volumes:
       - ./config/qbittorrent:/config
       - ./media:/data
+      # Idempotent init hook that binds libtorrent to tun0 on every start.
+      # See config-init/qbittorrent/10-bind-to-tun.sh for the why.
+      - ./config-init/qbittorrent:/custom-cont-init.d:ro
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────
